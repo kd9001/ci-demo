@@ -1,0 +1,39 @@
+name: CD Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"] # This waits for your first 'ci.yml' to finish
+    types: [completed]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Only run this if the tests in CI Pipeline actually passed!
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # 1. Go to home directory
+            cd /home/ubuntu
+            
+            # 2. If folder doesn't exist, clone it. If it does, pull updates.
+            if [ ! -d "ci-demo" ]; then
+              git clone https://github.com/${{ github.repository }}.git ci-demo
+            fi
+            
+            cd ci-demo
+            git pull origin main
+            
+            # 3. Install dependencies and start the app
+            npm install
+            sudo npm install -g pm2
+            pm2 restart all || pm2 start app.js --name "my-app"
